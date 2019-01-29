@@ -1,0 +1,291 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN" "http://www.w3.org/TR/html4/strict.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+<meta http-equiv="content-type" content="text/html; charset=utf-8"/>
+<title>Calculate tree pit geometries in JavaScript</title>
+<script type="text/javascript" src="scripts/latlong.js">/* Latitude/Longitude formulae JavaScript implementation */</script>
+<script type="text/javascript" src="scripts/proj4js/lib/proj4js-combined.js">/* javascript reprojection library */</script>
+<script type="text/javascript" src="jquery.js"></script>
+<script type="text/javascript" src="http://maps.google.com/maps/api/js?sensor=false">
+</script>
+<LINK REL=StyleSheet HREF="style.css" TYPE="text/css">
+
+<script>
+
+/* treePit object */
+function TreePitGeom(pstart, ppstart, ppend, pend, circ, housenum, streetname, position, status, species, speciesconfirmed, damage) {
+  this._pstart = pstart;
+  this._ppstart = ppstart
+  this._ppend = ppend;
+  this._pend = pend
+  this._pclose = pstart;
+  this._circ = circ;
+  this._housenum = housenum;
+  this._streetname = streetname;
+  this._position = position;
+  this._status = status;
+  this._species = species;
+  this._speciesconfirmed = speciesconfirmed;
+	this._damage = damage;
+}
+
+/* create point object, because proj4js point object fails*/
+function Point(x,y,z) {
+	this.x = x;
+	this.y = y;
+	this.z = z;
+}
+
+function makeAndSubmitGeoms(f) {
+	var i = 1;
+	var treePits = [];
+	while (f["width"+i] && f["width"+i].value) {
+		treePits.push(makeGeom(f["startx"].value, f["starty"].value, f["endx"].value, f["endy"].value, f["dist"+i].value, f["length"+i].value, f["width"+i].value, f["side"].value, f["circ"+i].value, f["housenum"+i].value, f['streetname'+i], jQuery('input:radio[name=position'+i+']:checked').val(), jQuery('input:radio[name=status'+i+']:checked').val(), f["species"+i].value), jQuery('input:radio[name=speciesconfirmed'+i+']:checked').val(), jQuery('input:radio[name=damage'+i+']:checked').val()||0);
+		i++;
+	}
+	var url = 'http://treekit.org/YourDataHere/userinput.php5?' +
+		'names=' + f['names'].value +
+		'&group=' + f['group'].value +
+		'&dateOf=' + f['dateOf'].value +
+		'&onStreet=' + f['onStreet'].value +
+		'&startXStreet=' + f['startXStreet'].value +
+		'&endXStreet=' + f['endXStreet'].value +
+		'&starty=' + f['starty'].value +
+		'&startx=' + f['startx'].value +
+		'&endy=' + f['endy'].value +
+		'&endx=' + f['endx'].value +
+		'&side=' +  jQuery('input:radio[name=side]:checked').val() +
+		'&hasTrees=' + jQuery('input:radio[name=hasTrees]:checked').val();
+	var i = 1;
+	while (f["width"+i] && f["width"+i].value) {
+		url += '&dist' + i + '=' + f['dist' + i].value;
+		url += '&length' + i + '=' + f['length' + i].value;
+		url += '&width' + i + '=' + f['width' + i].value;
+		url += '&circ' + i + '=' + f['circ' + i].value;
+		url += '&housenum' + i + '=' + f['housenum' + i].value;
+		url += '&streetname' + i + '=' + f['streetname' + i].value;
+		url += '&position' + i + '=' + jQuery('input:radio[name=position'+i+']:checked').val();
+		url += '&status' + i + '=' + jQuery('input:radio[name=status'+i+']:checked').val();
+		url += '&species' + i + '=' + f['species' + i].value;
+		url += '&speciesconfirmed' + i + '=' + jQuery('input:radio[name=speciesconfirmed'+i+']:checked').val();
+		url += '&damage' + i + '=' + (jQuery('input:radio[name=damage'+i+']:checked').val() || 0);
+		i++;
+	}
+	url += '&enddist=' + f['enddist'].value;
+	location.href = url;
+}
+
+function makeGeom(startx, starty, endx, endy, distft, lengthft, widthft, side, circ, housenum, streetname, position, status, species, speciesconfirmed, damage) {
+	Proj4js.reportError = function(msg) {alert(msg);}
+    /* proj defs */
+	Proj4js.defs["EPSG:4326"] = "+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs ";
+	Proj4js.defs["EPSG:2263"] = "+proj=lcc +lat_2=41.03333333333333 +lat_1=40.66666666666666 +lat_0=40.16666666666666 +lon_0=-74 +x_0=300000.0000000001 +y_0=0 +ellps=GRS80 +datum=NAD83 +to_meter=0.3048006096012192 +no_defs";
+	
+	/* initialize proj4js objects */
+	var source = new Proj4js.Proj('EPSG:2263');
+	var dest = new Proj4js.Proj('EPSG:4326');
+	
+	/* convert points from New York Long Island State Plane FIPS 3104 to WGS84 */
+	var pstart = new Point(startx, starty);
+	Proj4js.transform(source, dest, pstart); 
+	var pend = new Point(endx, endy);	
+	Proj4js.transform(source, dest, pend);
+
+    /* cast myPoint point to LatLon point, and calculate the bearing */		
+	var p1 = new LatLon(pstart.y, pstart.x, 6371); 
+    var p2 =  new LatLon(pend.y, pend.x, 6371); 
+    var brng = p1.bearingTo(p2);
+
+    /* convert distft, lengthft, and widthft from feet to kilometers */
+    dist = distft * 0.0003048;
+    length = lengthft * 0.0003048;
+    width = widthft * 0.0003048;
+        
+    /* calculate begin and end points of tree pit*/
+    var pstart = p1.destinationPoint(brng, dist);    
+    var pend = pstart.destinationPoint(brng, length);
+    
+    /* calc perpendicular bearing to make the polygon */
+    var slope = Math.tan(brng * (Math.PI/180));
+    var pslope = (1/slope) * -1;
+    var pbearing = (Math.tan(pslope)) * (180/Math.PI);
+
+    /* calculate bearing if its on the right side */
+    if (side == "left") {    	
+    	pbearing = 180 + (180 - (180 - pbearing));
+    }
+
+    /* calc parallel start point ppstart */
+    var ppstart = pstart.destinationPoint(pbearing, width);
+    
+    /* calc parallel endpoint ppend */
+    var ppend = pend.destinationPoint(pbearing, width);
+    
+    /* write points clockwise to make geometry (pstart, ppstart, ppend, pend, pstart) */
+    var treePit = new TreePitGeom(pstart, ppstart, ppend, pend, circ, housenum, streetname, position, status, species, speciesconfirmed);
+    
+    return treePit;	
+}
+
+function initialize() {
+	var latlng = new google.maps.LatLng(40.6766674107241, -73.96614074707031);
+   	var myOptions = {
+      zoom: 18,
+      center: latlng,
+      mapTypeId: google.maps.MapTypeId.ROADMAP
+    };
+   	var map = new google.maps.Map(document.getElementById("map_canvas"), myOptions);
+	google.maps.NavigationControlStyle.ZOOM_PAN
+			
+	var KMLperpendicular = new google.maps.KmlLayer("http://www.treenyc.org/YourDataHere/ProspectHeightsPerpendiculars.kmz?nocache=" + (new Date()).valueOf(),
+		{suppressInfoWindows: true,preserveViewport:true});
+	KMLperpendicular.setMap(map);
+			
+	var KMLbuildings = new google.maps.KmlLayer("http://www.treenyc.org/YourDataHere/ProspectHeightsBuildings.kmz?nocache=" + (new Date()).valueOf(),
+		{suppressInfoWindows: true,preserveViewport:true});
+	KMLbuildings.setMap(map);
+			
+	var KMLpavement = new google.maps.KmlLayer("http://www.treenyc.org/YourDataHere/ProspectHeightsPavementEdge.kmz?nocache=" + (new Date()).valueOf(),
+		{suppressInfoWindows: true,preserveViewport:true});
+	KMLpavement.setMap(map);		
+			
+	var KMLlots = new google.maps.KmlLayer("http://www.treenyc.org/YourDataHere/ProspectHeightsLots.kmz?nocache=" + (new Date()).valueOf(),
+		{suppressInfoWindows: true,preserveViewport:true});
+	KMLlots.setMap(map);	
+			
+	var pointLayer = new google.maps.KmlLayer(
+		"http://www.treenyc.org/YourDataHere/start_end.kml?nocache=" + (new Date()).valueOf(),
+   		{suppressInfoWindows: true,preserveViewport:true});
+	pointLayer.setMap(map);
+	google.maps.event.addListener(pointLayer, 'click', function(kmlEvent) {
+  		document.getElementById(currentLatLngInput + 'x').value = kmlEvent.latLng.lng();
+ 		document.getElementById(currentLatLngInput + 'y').value = kmlEvent.latLng.lat();
+	});
+}
+var currentLatLngInput = 'start';
+
+function writeToGoogle(aTreePits) {
+
+
+
+
+}
+
+</script>
+</head>
+<body>
+<body onload="initialize()">
+
+<div class="test">
+
+<form name="treepit" id="treepit" >
+<a href=http://treekit.org><h1><font color=#9C3>Tree</font><font color=#000>KIT</font></h1></a>
+<p><b>Welcome to the TreeKIT data entry form! This form will accept information from one spreadsheet at a time. </b></p>
+<h2>Fill in the basics about this block:</h2>
+<p>
+Names of mappers: <input type="text" name="names" id="names" value="" title="Names of Mappers">,
+Group or workshop title: <input type="text" name="group" id="group" value="" title="Group or workshop">,
+Date of mapping (YYYY-MM-DD): <input type="text" name="dateOf" id="dateOf" value="" title="Date Of Mapping">
+<br><br>
+Name of Street you mapped: <input type="text" name="onStreet" id="onStreet" value="" title="On Street">,
+Start Cross-street:<input type="text" name="startXStreet" id="startXStreet" value="" title="Start Intersection">,
+End Cross-street:<input type="text" name="endXStreet" id="endXStreet" value="" title="End Intersection">
+<br>
+</p>
+<p>If you were walking down the middle of the street in the direction that you're measuring, which side would the treepits be on?<input type='radio' id='side' name='side' value='L'>Left<input type='radio' id='side' name='side' value='R'>Right
+<p><b>Use the map below to zoom into your block and see the preloaded points. </b></p>
+<p><a href="javascript:void(0);" onclick="currentLatLngInput='start'; return false;">click here to activate the map for this question</a>
+Now, click your <b>Start Point</b> on the map: Latitude=
+            <input type="text" name="starty" id="starty" value="" title="Start Latitude">, Longitude=
+            <input type="text" name="startx" id="startx" value="" title="Start Longitude">
+</p>
+
+<p><a href="javascript:void(0);" onclick="currentLatLngInput='end'; return false;">click here to activate the map for this question</a>
+Now, click your <b>End Point</b> on the map: Latitude=
+            <input type="text" name="endy" id="endy" value="" title="End Latitude">, Longitude=
+            <input type="text" name="endx" id="endx" value="" title="End Longitude">
+</p>
+<div id="map_canvas" style="width: 975px; height: 400px"></div>
+<br>
+<p><b>Are there any trees or treebeds to record for this block segment?<input type='radio' id='hasTrees' name='hasTrees' value='1'>Yes<input type='radio' id='hasTrees' name='hasTrees' value='0'>No
+<p>If this block has NO treebeds, <input type="button" name="button" value="Mark this block as treeless!" onClick="makeGeomLine(this.form)" > But if the block does have treebeds, proceed to the next section. <br></b>
+<h2>Fill in your measurements, one row of the spreadsheet at a time:</h2>
+
+<div id="treeFormsDiv"></div>
+
+<script>
+var treeFormTemplate =
+"<p><b>Add information for Tree |:</b></p>" +
+"<p>Distance to TreeBed:<input type='text' name='dist|' id='dist|' value='' title='Distance to First TreeBed'><br>" +
+"Length of TreeBed (along curb):<input type='text' name='length|' id='length|' value='' title='Length of TreeBed'><br>" +
+"Width of TreeBed (perpendicular to curb):<input type='text' name='width|' id='width|' value='' title='Width of Tree Pit'><br>" +
+"Circumference of Tree in inches (measured 54\" above ground):<input type='text' name='circ|' id='circ|' value='' title='Circumference of Tree'><br>" +
+"House Number associated with Tree:<input type='text' name='housenum|' id='housenum|' value='' title='House Number'><br> " +
+"Street Name associated with Tree: <input type='text' name='streetname|' id='streetname|' value='' title='Street Name'><br> " +
+"Position (in relation to associated address): <input type='radio' id='position|' name='position|' value='Front'>Front<input type='radio' id='position|' name='position|' value='Side'>Side<input type='radio' id='position|' name='position|' value='Across'>Across<input type='radio' id='position|' name='position|' value='Adjacent'>Adjacent<br>" +
+"Tree Status: <input type='radio' id='status|' name='status|' value='alive'>Alive<input type='radio' id='status|' name='status|' value='dead'>Dead<input type='radio' id='status|' name='status|' value='stump'>Stump<input type='radio' id='status|' name='status|' value='none'>No Tree" +
+"<p>Dead or Alive, choose species: <select id='species|' name='species|'>" +
+"<option value='null'>choose...</option>" +
+"<option value='TICO'>Little Leaf Linden</option>" +
+"<option value='TIAM'>American Linden</option>" + 
+"<option value='TITO'>Silver Linden</option>" +
+"<option value='CR'>Hawthorn </option>" +
+"<option value='PYCA'>Callery Pear</option>" +
+"<option value='MAZ'>Crabapple</option>" +
+"<option value='PR'>Cherry</option>" +
+"<option value='QUPH'>Willow Oak</option>" +
+"<option value='QUAC'>Sawtooth Oak</option>" +
+"<option value='QUPA'>Pin Oak</option>" +
+"<option value='QURU'>Northern Red Oak</option>" +
+"<option value='QUBI'>Swamp White Oak</option>" +
+"<option value='QURO'>English Oak</option>" +
+"<option value='MEGL'>Dawn Redwood</option>" +
+"<option value='PIST'>Eastern White Pine</option>" +
+"<option value='TADI'>Bald Cypress</option>" +
+"<option value='FRPE'>Green Ash</option>" +
+"<option value='ACPL'>Norway Maple</option>" +
+"<option value='ACPLCK'>Crimson King Norway Maple</option>" +
+"<option value='ACRU'>Red Maple</option>" +
+"<option value='ACSA1'>Silver Maple</option>" +
+"<option value='ACSA2'>Sugar Maple</option>" +
+"<option value='ACCA'>Hedge Maple</option>" +
+"<option value='ACG1'>Amur Maple</option>" +
+"<option value='ACPS'>Sycamore Maple</option>" +
+"<option value='STJA2'>Japanese Pagoda Tree</option>" +
+"<option value='GLTR'>Honey Locust</option>" +
+"<option value='ROPS'>Black Locust</option>" +
+"<option value='GIBI'>Ginko</option>" +
+"<option value='ULAM'>American Elm</option>" +
+"<option value='ULPA'>Chinese Elm</option>" +
+"<option value='ZESE'>Japanese Zelkova</option>" +
+"<option value='PLAC'>London Plane Tree</option>" +
+"<option value='BE'>Birch</option>" +
+"<option value='CEJA'>Katsura Tree</option>" +
+"<option value='HADI'>Silverbell</option>" +
+"<option value='PRCE'>Purpleleaf Plum</option>" +
+"<option value='SYRE'>Japanese Lilac Tree</option>" +
+"<option value='UNK'>unknown</option>" +
+"</select><br>" +
+"Are you confident about this species identification? <input type='radio' id='speciesconfirmed|' name='speciesconfirmed|' value='1'>Yes<input type='radio' id='speciesconfirmed|' name='speciesconfirmed|' value='0'>No" + "<br>" +
+"Is this tree damaged? <input type='radio' id='damage|' name='damage|' value='1'>Yes<input type='radio' id='damage|' name='damage|' value='0'>No" + "<br>";
+var treeFormNum = 1;
+function addNewTreeForm() {
+var html = treeFormTemplate.replace(/\|/g, treeFormNum);
+var formDiv = document.createElement('div');
+formDiv.id = 'treeForm' + treeFormNum;
+formDiv.innerHTML = html;
+document.getElementById('treeFormsDiv').appendChild(formDiv);
+treeFormNum++;
+}
+// Create the first one
+addNewTreeForm();
+</script>
+
+<p>
+<b>Are there additional trees on this block? If so, click <input type='submit' value='yes' onclick="addNewTreeForm(); return false;"/> to expand this form.</b>
+</p>
+<p><b> When you have finished adding records for treebeds and trees, fill in the last distance measurement to the end of the block: <input type='text' name='enddist' id='enddist' value='' title='Distance to end of block'><br>Now click 
+<input type="button" name="button" value="Thundercats ho!" onClick="makeAndSubmitGeoms(this.form)" > to submit your information. Thank You!</b></p>
+</div>
+</body>
+</html>
